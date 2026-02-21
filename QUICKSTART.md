@@ -42,9 +42,16 @@ IB_HOST=127.0.0.1
 IB_PORT=4002
 IB_CLIENT_ID=1
 
+# Position sizing mode
+# true = Each follower uses same % of THEIR buying power (RECOMMENDED)
+# false = Use multipliers (1.0 = same quantity as master)
+USE_PROPORTIONAL_SIZING=true
+
 # IMPORTANT: Use DRY_RUN for testing!
 DRY_RUN=true
 ```
+
+**💡 Pro Tip**: With `USE_PROPORTIONAL_SIZING=true`, if your master uses 10% of buying power, each follower will also use 10% of THEIR buying power. Perfect for accounts of different sizes!
 
 **Save and close the file.**
 

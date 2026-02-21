@@ -52,6 +52,136 @@ class CopyEngine:
         self.state_store = state_store
         self.logger = logging.getLogger(__name__)
         self.rate_limiter = RateLimiter(config.order_rate_limit)
+        self._buying_power_cache = {}  # Cache buying power to reduce API calls
+        self._cache_timestamp = datetime.utcnow()
+
+    async def _get_account_buying_power(self, account_id: str) -> Optional[float]:
+        """Get buying power for an account."""
+        try:
+            # Refresh cache every 60 seconds
+            if (datetime.utcnow() - self._cache_timestamp).total_seconds() > 60:
+                self._buying_power_cache.clear()
+                self._cache_timestamp = datetime.utcnow()
+
+            # Check cache first
+            if account_id in self._buying_power_cache:
+                return self._buying_power_cache[account_id]
+
+            # Request account summary
+            await self.ib.reqAccountSummaryAsync()
+            await asyncio.sleep(0.5)  # Wait for data
+
+            # Get buying power from account values
+            account_values = self.ib.accountValues(account=account_id)
+
+            for value in account_values:
+                if value.tag == "BuyingPower":
+                    buying_power = float(value.value)
+                    self._buying_power_cache[account_id] = buying_power
+                    self.logger.debug(
+                        f"Retrieved buying power for {account_id}",
+                        extra={"buying_power": buying_power}
+                    )
+                    return buying_power
+
+            self.logger.warning(f"Could not find buying power for account {account_id}")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting buying power for {account_id}: {e}")
+            return None
+
+    async def _calculate_proportional_quantity(
+        self,
+        trade: Trade,
+        follower_account: str
+    ) -> Optional[float]:
+        """Calculate follower quantity based on proportional buying power."""
+        try:
+            primary_order = trade.order
+            contract = trade.contract
+            primary_account = self.config.primary_account
+
+            # Get buying power for both accounts
+            primary_buying_power = await self._get_account_buying_power(primary_account)
+            follower_buying_power = await self._get_account_buying_power(follower_account)
+
+            if not primary_buying_power or not follower_buying_power:
+                self.logger.error(
+                    "Could not retrieve buying power, falling back to multiplier",
+                    extra={
+                        "primary_bp": primary_buying_power,
+                        "follower_bp": follower_buying_power
+                    }
+                )
+                return None
+
+            # Get current market price for the contract
+            # For market orders, we need to estimate the value
+            price = None
+
+            # Try to get last price from contract details
+            if hasattr(contract, 'lastTradeDateOrContractMonth'):
+                # Request market data
+                ticker = self.ib.reqMktData(contract)
+                await asyncio.sleep(1)  # Wait for market data
+
+                if ticker.marketPrice() and ticker.marketPrice() > 0:
+                    price = ticker.marketPrice()
+                elif ticker.last and ticker.last > 0:
+                    price = ticker.last
+                elif ticker.close and ticker.close > 0:
+                    price = ticker.close
+
+                self.ib.cancelMktData(contract)
+
+            # For limit orders, use the limit price
+            if not price and primary_order.orderType == "LMT":
+                price = primary_order.lmtPrice
+
+            if not price or price <= 0:
+                self.logger.warning(
+                    f"Could not determine price for {contract.symbol}, falling back to multiplier"
+                )
+                return None
+
+            # Calculate the value of the primary order
+            primary_order_value = primary_order.totalQuantity * price
+
+            # Calculate percentage of buying power used
+            percentage_used = (primary_order_value / primary_buying_power) * 100
+
+            # Calculate follower order value using same percentage
+            follower_order_value = (percentage_used / 100) * follower_buying_power
+
+            # Calculate follower quantity
+            follower_quantity = follower_order_value / price
+
+            # Round to appropriate precision (usually whole shares)
+            follower_quantity = round(follower_quantity)
+
+            # Ensure minimum of 1 share
+            if follower_quantity < 1:
+                follower_quantity = 1
+
+            self.logger.info(
+                "Calculated proportional quantity",
+                extra={
+                    "symbol": contract.symbol,
+                    "primary_bp": primary_buying_power,
+                    "follower_bp": follower_buying_power,
+                    "percentage_used": percentage_used,
+                    "price": price,
+                    "primary_qty": primary_order.totalQuantity,
+                    "follower_qty": follower_quantity
+                }
+            )
+
+            return follower_quantity
+
+        except Exception as e:
+            self.logger.error(f"Error calculating proportional quantity: {e}", exc_info=True)
+            return None
 
     async def copy_new_order(self, trade: Trade):
         """Copy a new order to all follower accounts."""
@@ -110,10 +240,25 @@ class CopyEngine:
         contract = trade.contract
 
         # Calculate follower quantity
-        follower_quantity = self.config.get_follower_quantity(
-            primary_order.totalQuantity,
-            follower_account
-        )
+        if self.config.use_proportional_sizing:
+            # Use proportional buying power
+            follower_quantity = await self._calculate_proportional_quantity(trade, follower_account)
+
+            # Fall back to multiplier if proportional calculation fails
+            if follower_quantity is None:
+                self.logger.warning(
+                    f"Proportional sizing failed for {follower_account}, using multiplier fallback"
+                )
+                follower_quantity = self.config.get_follower_quantity(
+                    primary_order.totalQuantity,
+                    follower_account
+                )
+        else:
+            # Use configured multiplier
+            follower_quantity = self.config.get_follower_quantity(
+                primary_order.totalQuantity,
+                follower_account
+            )
 
         # Create follower order
         follower_order = self._create_follower_order(primary_order, follower_quantity)

@@ -53,6 +53,9 @@ class Config:
     # Copier identification (to prevent loops)
     copier_tag: str = "COPIER_AUTO"
 
+    # Position sizing mode
+    use_proportional_sizing: bool = False  # Use % of buying power instead of multipliers
+
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
@@ -101,6 +104,9 @@ class Config:
 
             # Copier tag
             copier_tag=os.getenv("COPIER_TAG", "COPIER_AUTO"),
+
+            # Position sizing
+            use_proportional_sizing=os.getenv("USE_PROPORTIONAL_SIZING", "false").lower() == "true",
         )
 
     @staticmethod

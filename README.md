@@ -282,6 +282,42 @@ COPY_RULES={"U7654321":{"multiplier":1.0,"enabled":true},"U1111111":{"multiplier
 - **multiplier**: Scale order quantity (0.5 = half size, 2.0 = double size)
 - **enabled**: Temporarily disable a follower without removing configuration
 
+#### Proportional Sizing (Recommended for Different Account Sizes)
+
+**NEW FEATURE**: Automatically size orders based on buying power percentage.
+
+```bash
+USE_PROPORTIONAL_SIZING=true
+```
+
+**How it works:**
+- Master account uses 10% of buying power → Followers use 10% of THEIR buying power
+- Each follower automatically scales to their account size
+- No manual multiplier calculation needed
+
+**Example:**
+```
+Master:     $100,000 buying power → buys $10,000 of AAPL (10%)
+Follower 1: $50,000 buying power  → buys $5,000 of AAPL (10%)
+Follower 2: $200,000 buying power → buys $20,000 of AAPL (10%)
+```
+
+**Benefits:**
+- Perfect for accounts of different sizes
+- Automatically maintains proportional exposure
+- No need to calculate multipliers manually
+- Adapts as account values change
+
+**When to use:**
+- ✅ Follower accounts have different sizes than master
+- ✅ You want same % allocation across all accounts
+- ✅ Account sizes change over time
+
+**When to use multipliers instead:**
+- You want specific fixed ratios (e.g., always half size)
+- All accounts have similar sizes
+- `USE_PROPORTIONAL_SIZING=false` (uses COPY_RULES multipliers)
+
 ### Safety Features
 
 #### DRY_RUN Mode
