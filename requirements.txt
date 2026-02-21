@@ -1,0 +1,8 @@
+# IBKR API
+ib-insync==0.9.86
+
+# Async HTTP server for health checks
+aiohttp==3.9.1
+
+# Utilities
+python-dotenv==1.0.0

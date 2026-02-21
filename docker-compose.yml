@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  copier:
+    build: .
+    container_name: ib-trade-copier
+    restart: unless-stopped
+
+    environment:
+      # IB Connection
+      - IB_HOST=${IB_HOST:-127.0.0.1}
+      - IB_PORT=${IB_PORT:-4002}
+      - IB_CLIENT_ID=${IB_CLIENT_ID:-1}
+
+      # Accounts
+      - PRIMARY_ACCOUNT=${PRIMARY_ACCOUNT}
+      - COPY_RULES=${COPY_RULES}
+
+      # Safety
+      - DRY_RUN=${DRY_RUN:-false}
+      - COPY_SYMBOLS=${COPY_SYMBOLS:-}
+
+      # Reconnect settings
+      - RECONNECT_MAX_ATTEMPTS=${RECONNECT_MAX_ATTEMPTS:-10}
+      - RECONNECT_INITIAL_DELAY=${RECONNECT_INITIAL_DELAY:-1.0}
+      - RECONNECT_MAX_DELAY=${RECONNECT_MAX_DELAY:-300.0}
+
+      # State
+      - STATE_DB_PATH=${STATE_DB_PATH:-/data/copier_state.db}
+
+      # Health
+      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
+      - HEALTH_CHECK_PORT=${HEALTH_CHECK_PORT:-8080}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+
+      # Rate limiting
+      - ORDER_RATE_LIMIT=${ORDER_RATE_LIMIT:-50}
+
+      # Copier tag
+      - COPIER_TAG=${COPIER_TAG:-COPIER_AUTO}
+
+    volumes:
+      # Persist state database
+      - copier-data:/data
+
+    ports:
+      # Health check endpoint
+      - "${HEALTH_CHECK_PORT:-8080}:8080"
+
+    # Network mode for connecting to IB Gateway on host
+    # Use "host" if IB Gateway is on the same machine
+    # network_mode: host
+
+    # Or use a custom network if IB Gateway is in another container
+    networks:
+      - ib-network
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  copier-data:
+
+networks:
+  ib-network:
+    driver: bridge
